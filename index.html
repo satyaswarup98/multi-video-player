@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Multi Video Player</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <style>
+    /* IMPORANT: Remove overflow: hidden from html, body */
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #000;
+      color: white;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      height: 100%;
+      width: 100%; /* Ensure both html and body take full width */
+      /* Use overflow properties on specific elements if scrolling is needed */
+    }
+
+    /* Hide scrollbar for Webkit browsers (Chrome, Safari) */
+    ::-webkit-scrollbar {
+        display: none;
+    }
+
+    /* Hide scrollbar for Firefox */
+    html {
+        scrollbar-width: none; /* Firefox */
+    }
+
+
+    #uploader { text-align: center; padding: 40px; background: #1a1a1a; border-bottom: 2px solid #333; }
+    h2 { color: #00e676; margin-bottom: 20px; }
+    input[type="file"] {
+      padding: 10px 15px;
+      border: 2px solid #00e676;
+      border-radius: 8px;
+      background-color: #333;
+      color: #00e676;
+      cursor: pointer;
+      font-size: 16px;
+      transition: all 0.3s ease;
+    }
+    input[type="file"]::-webkit-file-upload-button {
+        visibility: hidden;
+    }
+    input[type="file"]::before {
+        content: 'Select Videos';
+        display: inline-block;
+        background: linear-gradient(to right, #00e676, #00c853);
+        color: white;
+        border: none;
+        border-radius: 5px;
+        padding: 8px 16px;
+        outline: none;
+        white-space: nowrap;
+        -webkit-user-select: none;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 16px;
+        margin-right: 10px;
+    }
+    input[type="file"]:hover::before {
+        background: linear-gradient(to right, #00c853, #00b0ff);
+    }
+
+    .video-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      grid-auto-rows: min-content;
+      justify-content: center;
+      align-items: center;
+      width: 100vw;
+      column-gap: 5px;
+      row-gap: 5px;
+      padding: 10px;
+      box-sizing: border-box;
+      /* Changed to max-height to allow content to dictate height, but scroll if too tall */
+      max-height: 100vh; /* Adjust based on uploader and control bar height */
+      overflow-y: auto; /* Enable scrolling for many videos */
+      overflow-x: hidden; /* Explicitly hide horizontal scrollbar for the grid */
+    }
+
+    /* Add media queries for responsiveness if needed, for example: */
+    @media (max-width: 900px) {
+        .video-grid {
+            grid-template-columns: repeat(2, 1fr); /* 2 columns on smaller screens */
+        }
+    }
+    @media (max-width: 600px) {
+        .video-grid {
+            grid-template-columns: repeat(1, 1fr); /* 1 column on very small screens */
+        }
+    }
+    .video-container {
+      position: relative;
+      width: 100%;
+      padding-bottom: 56.25%; /* 16:9 Aspect Ratio */
+      height: 0;
+      overflow: hidden;
+      background: black;
+      border-radius: 10px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+    }
+    /* New: Styling for fullscreen single video */
+    .video-container.fullscreen-active {
+        width: 100vw; /* Take full viewport width */
+        height: calc(100vh - 70px); /* Fill available height, accounting for controls */
+        padding-bottom: 0; /* Remove aspect ratio padding when in fullscreen */
+        border-radius: 0; /* Optional: Make fullscreen video sharper at edges */
+        display: flex; /* Use flex to center video inside */
+        justify-content: center;
+        align-items: center;
+        /* Ensure no overflow on the video container when active */
+        overflow: hidden;
+    }
+
+    video, .blank {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover; /* This makes the video fill the container while maintaining aspect ratio */
+      background: black;
+      border-radius: 10px;
+    }
+    /* New: Adjust object-fit for fullscreen video to 'contain' */
+    .video-container.fullscreen-active video {
+        position: relative; /* Change to relative for flex centering */
+        width: 100%;
+        height: 100%;
+        object-fit: contain; /* Maintain aspect ratio and show full video */
+        border-radius: 0; /* Optional: Make fullscreen video sharper at edges */
+    }
+
+    .fullscreen-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.5);
+      border: none;
+      color: white;
+      font-size: 18px;
+      cursor: pointer;
+      padding: 10px 12px;
+      border-radius: 50%;
+      display: none;
+      transition: background 0.3s ease, transform 0.2s ease;
+      z-index: 10;
+    }
+    .fullscreen-btn:hover {
+      background: rgba(0, 0, 0, 0.8);
+      transform: scale(1.1);
+    }
+    .video-container:hover .fullscreen-btn {
+      display: block;
+    }
+
+    /* --- Controls Container (Netflix-like) --- */
+    .controls {
+      position: fixed;
+      bottom: 0; /* Full screen width at the bottom */
+      left: 0;
+      width: 100%;
+      background: rgba(15, 15, 15, 0.542); /* Darker, slightly opaque background */
+      backdrop-filter: blur(15px);
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between; /* Space out primary groups */
+      box-shadow: 0 -5px 20px rgba(0, 0, 0, 0.7); /* Shadow at the top */
+      opacity: 1;
+      transition: opacity 0.5s ease-in-out;
+      z-index: 100;
+      height: 70px; /* Taller for better touch targets and spacing */
+      box-sizing: border-box; /* Include padding in width/height */
+    }
+    .controls.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* Netflix-like single line of menus */
+    .controls-group {
+      display: flex;
+      align-items: center;
+      gap: 10px; /* Spacing between items in a group */
+    }
+
+    /* Modern Buttons */
+    .controls button {
+      background: rgba(0, 0, 0, 0);
+      border: none;
+      color: #ffffff;
+      font-size: 20px; /* Larger icons */
+      padding: 12px; /* More padding */
+      border-radius: 50%;
+      cursor: pointer;
+      outline: none;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 48px; /* Fixed width */
+      height: 48px; /* Fixed height */
+    }
+    .controls button:hover {
+      background: rgba(0, 0, 0, 0.485);
+      color: #ffffff;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.6);
+    }
+
+    #playPauseBtn {
+      border-radius: 25px; /* Pill shape */
+      padding: 10px 20px; /* Adjust padding */
+      width: auto; /* Auto width */
+      height: auto;
+      min-width: 80px; /* Ensure a minimum width */
+    }
+    #playPauseBtn i {
+      font-size: 22px; /* Larger icon */
+    }
+
+    /* Seek Bar Styling */
+    input[type="range"] {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 8px; /* Thicker seek bar */
+      background: #555;
+      border-radius: 4px;
+      outline: none;
+      transition: background 0.2s ease;
+      flex-grow: 1;
+      margin: 0 15px; /* More margin */
+      --seek-progress: 0%;
+      background: linear-gradient(to right, #ffffff 0%, #00e676 var(--seek-progress), #555 var(--seek-progress), #555 100%);
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 20px; /* Larger thumb */
+      height: 20px; /* Larger thumb */
+      border-radius: 50%;
+      background: #00e676;
+      cursor: pointer;
+      box-shadow: 0 0 5px rgba(0, 0, 0, 0.6);
+      transition: background 0.2s ease, transform 0.1s ease;
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #00e676;
+      cursor: pointer;
+      box-shadow: 0 0 5px rgba(0, 0, 0, 0.6);
+      transition: background 0.2s ease, transform 0.1s ease;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover,
+    input[type="range"]::-moz-range-thumb:hover {
+        transform: scale(1.1);
+    }
+
+    .time-label {
+      color: #ccc;
+      font-size: 14px;
+      white-space: nowrap;
+      min-width: 100px;
+      text-align: right;
+    }
+
+    /* Volume and Speed controls specific styling */
+    #volumeSlider {
+        width: 80px; /* Fixed width for volume slider */
+        margin: 0 8px;
+        height: 6px; /* Slimmer volume slider */
+        background: linear-gradient(to right, #ffffff 0%, #00e676 var(--volume-progress, 100%), #555 var(--volume-progress, 100%), #555 100%);
+    }
+    #volumeSlider::-webkit-slider-thumb {
+        width: 16px;
+        height: 16px;
+    }
+    #volumeSlider::-moz-range-thumb {
+        width: 16px;
+        height: 16px;
+    }
+    #muteBtn{
+        margin-left: 12px;
+    }
+
+    #speedSelect {
+        background: rgba(44, 44, 44, 0.7);
+        color: #ffffff;
+        border: none;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 14px;
+        cursor: pointer;
+        outline: none;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.4);
+        transition: all 0.2s ease;
+        -webkit-appearance: none; /* Remove default arrow */
+        -moz-appearance: none;
+        appearance: none;
+        background-image: url('data:image/svg+xml;utf8,<svg fill="%23ffffff" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/><path d="M0 0h24v24H0z" fill="none"/></svg>'); /* Custom arrow */
+        background-repeat: no-repeat;
+        background-position: right 8px center;
+        padding-right: 30px; /* Make space for the arrow */
+    }
+    #speedSelect:hover {
+        background: rgba(26, 26, 26, 0.8);
+        color: #ffffffd8;
+    }
+    #speedSelect option {
+        background: #333;
+        color: white;
+    }
+
+    #author {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.293); /* Or any contrasting color */
+  z-index: 9999;
+  pointer-events: none; /* So it doesn't interfere with clicks */
+  font-size: 16px;
+    }
+
+  </style>
+</head>
+<body>
+
+    <div id="author">@ Designed and Devloped by Satya</div>
+
+<div id="uploader">
+  <h2>Multi Video Player</h2>
+  <input type="file" id="fileInput" multiple accept="video/*">
+</div>
+
+<div class="video-grid" id="videoGrid"></div>
+
+<div class="controls" id="controlsBar">
+    <div class="controls-group">
+        <button id="playPauseBtn" onclick="togglePlay()">
+            <i class="fas fa-play"></i>
+        </button>
+        <button onclick="seekAll(-10)"><i class="fas fa-backward"></i></button>
+        <button onclick="seekAll(10)"><i class="fas fa-forward"></i></button>
+        <button onclick="nextVideo()"><i class="fas fa-step-forward"></i></button>
+    </div>
+
+    <input type="range" id="seekBar" min="0" max="100" value="0" step="0.01">
+    <span class="time-label" id="timeLabel">00:00 / 00:00</span>
+
+    <div class="controls-group">
+        <button id="muteBtn" onclick="toggleMute()"><i class="fas fa-volume-up"></i></button>
+        <input type="range" id="volumeSlider" min="0" max="1" value="1" step="0.01">
+        <select id="speedSelect" onchange="setPlaybackSpeed(this.value)">
+            <option value="0.5">0.5x</option>
+            <option value="0.75">0.75x</option>
+            <option value="1" selected>1x</option>
+            <option value="1.25">1.25x</option>
+            <option value="1.5">1.5x</option>
+            <option value="2">2x</option>
+        </select>
+        <button onclick="toggleFullscreen()"><i class="fas fa-expand"></i></button>
+    </div>
+</div>
+
+<script>
+    let hideTimeout;
+    const fileInput = document.getElementById('fileInput');
+    const uploader = document.getElementById('uploader');
+    const videoGrid = document.getElementById('videoGrid');
+    const seekBar = document.getElementById('seekBar');
+    const timeLabel = document.getElementById('timeLabel');
+    const controlsBar = document.getElementById('controlsBar');
+    const playPauseBtn = document.getElementById('playPauseBtn');
+    const volumeSlider = document.getElementById('volumeSlider');
+    const muteBtn = document.getElementById('muteBtn');
+    const speedSelect = document.getElementById('speedSelect');
+
+    let videos = [];
+    let maxDuration = 0;
+    let isPlaying = false;
+    let endedFlags = [];
+    let fullscreenIndex = null;
+    let currentVideoIndex = 0; // For "Next Video" functionality
+
+    fileInput.onchange = () => {
+        const files = fileInput.files;
+        if (files.length === 0 || files.length > 9) {
+            alert("Please select between 1 to 9 video files.");
+            return;
+        }
+
+        uploader.style.display = "none";
+        controlsBar.style.display = "flex"; // Ensure controls are visible and use flex for layout
+        controlsBar.classList.remove('hidden');
+        clearTimeout(hideTimeout);
+        hideTimeout = setTimeout(() => controlsBar.classList.add('hidden'), 5000);
+
+        videoGrid.innerHTML = "";
+        videos = [];
+        endedFlags = Array(files.length).fill(false);
+        isPlaying = false;
+        playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+        currentVideoIndex = 0; // Reset current video index
+
+        for (let i = 0; i < files.length; i++) {
+            const container = document.createElement('div');
+            container.className = 'video-container';
+
+            const video = document.createElement('video');
+            video.src = URL.createObjectURL(files[i]);
+            video.muted = (i !== currentVideoIndex); // Mute all but the first video initially
+            video.controls = false;
+            video.preload = "metadata";
+            video.onerror = () => alert("Error loading video.");
+            video.onended = () => {
+                endedFlags[i] = true;
+                if (videos.every(v => v.ended || v.currentTime >= v.duration)) {
+                    pauseAll();
+                    // Optionally, you can trigger nextVideo() here if you want automatic playback of the next video
+                    // nextVideo();
+                }
+            };
+
+            const btn = document.createElement('button');
+            btn.className = 'fullscreen-btn';
+            btn.innerHTML = '<i class="fas fa-expand"></i>';
+            btn.onclick = (e) => {
+                e.stopPropagation();
+                toggleFullscreenVideo(i);
+            };
+
+            container.appendChild(video);
+            container.appendChild(btn);
+            videoGrid.appendChild(container);
+            videos.push(video);
+        }
+
+        Promise.all(videos.map(v => new Promise(resolve => {
+            v.onloadedmetadata = () => resolve(v.duration || 0);
+        }))).then(durations => {
+            maxDuration = Math.max(...durations);
+            seekBar.max = maxDuration.toFixed(2);
+            updateTimeLabel(0, maxDuration);
+            pauseAll();
+            setVolume(volumeSlider.value); // Apply initial volume
+            setPlaybackSpeed(speedSelect.value); // Apply initial speed
+            updateMuteButton(); // Update mute button state
+        });
+    };
+
+    function toggleFullscreen() {
+        if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(err => console.error("FS Error:", err));
+        } else {
+            document.exitFullscreen();
+        }
+    }
+
+    function togglePlay() {
+        isPlaying = !isPlaying;
+        playPauseBtn.innerHTML = isPlaying ? '<i class="fas fa-pause"></i>' : '<i class="fas fa-play"></i>';
+        videos.forEach((v, i) => {
+            if (isPlaying && v.currentTime < v.duration && !endedFlags[i]) {
+                v.play().catch(() => {});
+            } else {
+                v.pause();
+            }
+        });
+    }
+
+    function pauseAll() {
+        isPlaying = false;
+        playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
+        videos.forEach(v => v.pause());
+    }
+
+    function seekAll(offset) {
+        const val = Math.min(Math.max(0, parseFloat(seekBar.value) + offset), maxDuration);
+        seekTo(val);
+    }
+
+    function seekTo(timeVal) {
+        seekBar.value = timeVal;
+        updateTimeLabel(timeVal, maxDuration);
+        videos.forEach((v, i) => {
+            if (timeVal <= v.duration) {
+                v.currentTime = timeVal;
+                if (endedFlags[i]) endedFlags[i] = false;
+                if (isPlaying) v.play().catch(() => {});
+            }
+        });
+    }
+
+    function formatTime(seconds) {
+        const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+        const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+        return `${m}:${s}`;
+    }
+
+    function updateTimeLabel(current, max) {
+        timeLabel.textContent = `${formatTime(current)} / ${formatTime(max)}`;
+    }
+
+    seekBar.addEventListener('input', () => {
+        seekTo(parseFloat(seekBar.value));
+    });
+
+    function syncSeekBar() {
+        const activeVideos = videos.filter((v, i) => !endedFlags[i]);
+        const avgTime = activeVideos.length
+            ? activeVideos.reduce((sum, v) => sum + v.currentTime, 0) / activeVideos.length
+            : maxDuration;
+        seekBar.value = avgTime;
+        seekBar.style.setProperty('--seek-progress', `${(avgTime / maxDuration) * 100}%`);
+        updateTimeLabel(avgTime, maxDuration);
+    }
+
+    setInterval(() => {
+        if (!videos.length) return;
+
+        videos.forEach((v, i) => {
+            if (endedFlags[i]) return;
+            if (v.ended || v.currentTime >= v.duration) {
+                endedFlags[i] = true;
+            }
+        });
+
+        syncSeekBar();
+    }, 300);
+
+    function toggleFullscreenVideo(index) {
+        if (fullscreenIndex === index) {
+            // Exit fullscreen for a specific video
+            fullscreenIndex = null;
+            videoGrid.style.display = 'grid'; // Revert to grid layout
+            videos.forEach((v, i) => {
+                v.parentElement.style.display = ''; // Show all video containers
+                v.parentElement.classList.remove('fullscreen-active'); // Remove fullscreen class
+                if (!endedFlags[i] && isPlaying) v.play();
+            });
+            // Re-mute other videos if only one was active during fullscreen
+            videos.forEach((v, i) => {
+                v.muted = (i !== currentVideoIndex);
+            });
+            updateMuteButton();
+
+        } else {
+            // Enter fullscreen for a specific video
+            fullscreenIndex = index;
+            videoGrid.style.display = 'block'; // Make grid behave like a block to center single video
+            videos.forEach((v, i) => {
+                if (i === index) {
+                    v.parentElement.style.display = 'block'; // Show the selected video container
+                    v.parentElement.classList.add('fullscreen-active'); // Add fullscreen class
+                    if (isPlaying && !endedFlags[i]) {
+                        v.play();
+                    } else {
+                        v.pause();
+                    }
+                    // Unmute the currently active video and mute others
+                    v.muted = false;
+                } else {
+                    v.parentElement.style.display = 'none'; // Hide all other video containers
+                    v.parentElement.classList.remove('fullscreen-active');
+                    v.pause(); // Pause hidden videos
+                    v.muted = true; // Mute hidden videos
+                }
+            });
+            updateMuteButton();
+        }
+    }
+
+    // --- New Functionality ---
+
+    function setVolume(volume) {
+        videos.forEach(v => {
+            v.volume = volume;
+        });
+        volumeSlider.style.setProperty('--volume-progress', `${volume * 100}%`);
+        updateMuteButton();
+    }
+
+    function toggleMute() {
+        if (videos.length === 0) return;
+        // If in single video fullscreen mode, only toggle mute for that video
+        if (fullscreenIndex !== null) {
+            const video = videos[fullscreenIndex];
+            video.muted = !video.muted;
+        } else {
+            // Otherwise, toggle mute for the currently active video based on currentVideoIndex
+            const video = videos[currentVideoIndex];
+            video.muted = !video.muted;
+            // Optionally, you could mute/unmute all videos if not in fullscreen mode
+            // videos.forEach(v => v.muted = !videos[0].muted);
+        }
+        updateMuteButton();
+    }
+
+
+    function updateMuteButton() {
+        if (videos.length === 0) {
+            muteBtn.innerHTML = '<i class="fas fa-volume-up"></i>';
+            return;
+        }
+        let referenceVideo;
+        if (fullscreenIndex !== null) {
+            referenceVideo = videos[fullscreenIndex];
+        } else {
+            referenceVideo = videos[currentVideoIndex];
+        }
+
+        if (referenceVideo.muted) {
+            muteBtn.innerHTML = '<i class="fas fa-volume-mute"></i>';
+        } else if (referenceVideo.volume === 0) {
+            muteBtn.innerHTML = '<i class="fas fa-volume-off"></i>';
+        } else if (referenceVideo.volume < 0.5) {
+            muteBtn.innerHTML = '<i class="fas fa-volume-down"></i>';
+        } else {
+            muteBtn.innerHTML = '<i class="fas fa-volume-up"></i>';
+        }
+        volumeSlider.value = referenceVideo.volume;
+        volumeSlider.style.setProperty('--volume-progress', `${referenceVideo.volume * 100}%`);
+    }
+
+    volumeSlider.addEventListener('input', () => {
+        // If in single video fullscreen mode, only adjust volume for that video
+        if (fullscreenIndex !== null) {
+            videos[fullscreenIndex].volume = parseFloat(volumeSlider.value);
+        } else {
+            // Otherwise, adjust volume for the currently active video based on currentVideoIndex
+            videos[currentVideoIndex].volume = parseFloat(volumeSlider.value);
+            // Optionally, you could adjust volume for all videos if not in fullscreen mode
+            // setVolume(parseFloat(volumeSlider.value));
+        }
+        updateMuteButton();
+    });
+
+    function setPlaybackSpeed(speed) {
+        videos.forEach(v => {
+            v.playbackRate = parseFloat(speed);
+        });
+    }
+
+    function nextVideo() {
+        if (videos.length === 0) return;
+
+        // Exit fullscreen for the current video if it's active
+        if (fullscreenIndex !== null) {
+            videos[fullscreenIndex].parentElement.classList.remove('fullscreen-active');
+            videos[fullscreenIndex].parentElement.style.display = 'none'; // Temporarily hide it
+        }
+
+        // Increment current video index, loop back to 0 if at the end
+        currentVideoIndex = (currentVideoIndex + 1) % videos.length;
+
+        // Automatically go full screen for the next video
+        toggleFullscreenVideo(currentVideoIndex);
+
+        // Ensure the new active video is not muted (if others are)
+        videos.forEach((v, i) => {
+            v.muted = (i !== currentVideoIndex);
+        });
+        updateMuteButton();
+
+        // If currently playing, start playing the new video
+        if (isPlaying) {
+            videos[currentVideoIndex].play().catch(() => {});
+        }
+    }
+
+    // Controls auto-hide logic
+    document.body.addEventListener('mousemove', () => {
+        controlsBar.classList.remove('hidden');
+        clearTimeout(hideTimeout);
+        hideTimeout = setTimeout(() => controlsBar.classList.add('hidden'), 5000);
+    });
+
+    controlsBar.addEventListener('mousemove', (e) => {
+        e.stopPropagation();
+        controlsBar.classList.remove('hidden');
+        clearTimeout(hideTimeout);
+        hideTimeout = setTimeout(() => controlsBar.classList.add('hidden'), 5000);
+    });
+
+    // Initialize controls when page loads (useful if videos are pre-loaded or for consistent UI)
+    window.onload = () => {
+        controlsBar.style.display = "none"; // Hide controls initially
+        updateMuteButton(); // Set initial mute button state
+    };
+</script>
+
+</body>
+</html>
